@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procesador de MIDI para Bajo y Batería</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        button, select, input {
+            padding: 10px;
+            font-size: 16px;
+        }
+        #status {
+            margin-top: 10px;
+            color: #333;
+        }
+        .track-selection {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Procesador de MIDI para Bajo y Batería</h1>
+        <div>
+            <label for="midiInput">Sube tu archivo MIDI:</label>
+            <input type="file" id="midiInput" accept=".mid" />
+        </div>
+        <div class="track-selection">
+            <label for="drumTrack">Pista de batería (índice, -1 para detección automática):</label>
+            <input type="number" id="drumTrack" value="-1" min="-1" />
+            <label for="bassTrack">Pista de bajo (índice, -1 para detección automática):</label>
+            <input type="number" id="bassTrack" value="-1" min="-1" />
+        </div>
+        <div>
+            <label for="bassInstrument">Selecciona el instrumento de bajo:</label>
+            <select id="bassInstrument">
+                <option value="33">Bajo Acústico (33)</option>
+                <option value="34">Bajo Eléctrico (dedos) (34)</option>
+                <option value="35">Bajo Eléctrico (púa) (35)</option>
+                <option value="36">Bajo Sin Trastes (36)</option>
+                <option value="37">Slap Bass 1 (37)</option>
+                <option value="38">Slap Bass 2 (38)</option>
+                <option value="39">Bajo Sintetizado 1 (39)</option>
+                <option value="40">Bajo Sintetizado 2 (40)</option>
+            </select>
+        </div>
+        <button id="processButton" disabled>Procesar MIDI</button>
+        <div id="status"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/midi-parser-js@4.0.4/dist/midi-parser.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/midi-writer-js@2.0.0/dist/index.js" defer></script>
+    <script>
+        // Función para inicializar la aplicación
+        function initApp() {
+            if (!window.MidiParser) {
+                document.getElementById('status').textContent = 'Error: No se pudo cargar la biblioteca MidiParser.';
+                console.error('MidiParser no está definido.');
+                return;
+            }
+
+            if (!window.MidiWriter) {
+                document.getElementById('status').textContent = 'Error: No se pudo cargar la biblioteca MidiWriter.';
+                console.error('MidiWriter no está definido.');
+                return;
+            }
+
+            console.log('Bibliotecas cargadas correctamente: MidiParser y MidiWriter.');
+
+            const midiInput = document.getElementById('midiInput');
+            const processButton = document.getElementById('processButton');
+            const statusDiv = document.getElementById('status');
+            const bassInstrumentSelect = document.getElementById('bassInstrument');
+            const drumTrackInput = document.getElementById('drumTrack');
+            const bassTrackInput = document.getElementById('bassTrack');
+
+            let uploadedMidiData = null;
+
+            // Habilitar el botón de procesamiento al subir un archivo
+            midiInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            uploadedMidiData = window.MidiParser.parse(new Uint8Array(e.target.result));
+                            console.log('Archivo MIDI cargado:', uploadedMidiData);
+                            console.log('Número de pistas:', uploadedMidiData.track.length);
+                            processButton.disabled = false;
+                            statusDiv.textContent = 'Archivo MIDI cargado. Listo para procesar.';
+                        } catch (error) {
+                            console.error('Error al parsear el archivo MIDI subido:', error);
+                            statusDiv.textContent = 'Error al cargar el archivo MIDI.';
+                        }
+                    };
+                    reader.onerror = () => {
+                        console.error('Error al leer el archivo MIDI subido.');
+                        statusDiv.textContent = 'Error al leer el archivo MIDI.';
+                    };
+                    reader.readAsArrayBuffer(file);
+                }
+            });
+
+            // Cargar el archivo MIDI de introducción
+            async function loadIntroMidi() {
+                try {
+                    console.log('Intentando cargar Intro_Claqueta_V2.mid...');
+                    const response = await fetch('Intro_Claqueta_V2.mid');
+                    if (!response.ok) {
+                        throw new Error('No se pudo cargar Intro_Claqueta_V2.mid. Código de estado: ' + response.status);
+                    }
+                    const arrayBuffer = await response.arrayBuffer();
+                    const introMidi = window.MidiParser.parse(new Uint8Array(arrayBuffer));
+                    console.log('Archivo de introducción cargado:', introMidi);
+                    return introMidi;
+                } catch (error) {
+                    console.warn('Error al cargar el archivo MIDI de introducción:', error);
+                    statusDiv.textContent = 'No se pudo cargar Intro_Claqueta_V2.mid. Continuando sin introducción.';
+                    return null;
+                }
+            }
+
+            // Procesar el archivo MIDI
+            processButton.addEventListener('click', async () => {
+                if (!uploadedMidiData) {
+                    statusDiv.textContent = 'Por favor, sube un archivo MIDI primero.';
+                    console.warn('No se ha cargado ningún archivo MIDI.');
+                    return;
+                }
+
+                statusDiv.textContent = 'Procesando...';
+                console.log('Iniciando procesamiento del archivo MIDI...');
+
+                const introMidi = await loadIntroMidi();
+                let introDuration = 0;
+                if (introMidi) {
+                    introMidi.track.forEach(track => {
+                        let trackDuration = 0;
+                        track.event.forEach(event => {
+                            trackDuration += event.deltaTime || 0;
+                        });
+                        introDuration = Math.max(introDuration, trackDuration);
+                    });
+                    console.log('Duración del intro (ticks):', introDuration);
+                } else {
+                    console.log('No hay intro. Continuando sin desplazamiento.');
+                }
+
+                const midiWriter = new MidiWriter.Writer();
+                const ticksPerBeat = uploadedMidiData.timeDivision;
+                console.log('Ticks por beat:', ticksPerBeat);
+
+                // Detectar pistas de batería y bajo
+                let drumTrackIndex = parseInt(drumTrackInput.value);
+                let bassTrackIndex = parseInt(bassTrackInput.value);
+
+                if (drumTrackIndex === -1 || bassTrackIndex === -1) {
+                    uploadedMidiData.track.forEach((track, index) => {
+                        let hasDrum = false;
+                        let hasBass = false;
+                        track.event.forEach(event => {
+                            if (event.type === 9 && event.channel === 9) { // Canal 10 (9 en base 0) es típicamente batería
+                                hasDrum = true;
+                            }
+                            if (event.type === 12 && event.data >= 33 && event.data <= 40) { // Cambio de programa para instrumentos de bajo
+                                hasBass = true;
+                            }
+                        });
+                        if (hasDrum && drumTrackIndex === -1) drumTrackIndex = index;
+                        if (hasBass && bassTrackIndex === -1) bassTrackIndex = index;
+                    });
+                }
+
+                console.log('Índice de pista de batería:', drumTrackIndex);
+                console.log('Índice de pista de bajo:', bassTrackIndex);
+
+                if (drumTrackIndex === -1 || bassTrackIndex === -1 || drumTrackIndex >= uploadedMidiData.track.length || bassTrackIndex >= uploadedMidiData.track.length) {
+                    statusDiv.textContent = 'No se pudo detectar o seleccionar la pista de batería o bajo. Revisa los índices.';
+                    console.error('Índices de pista no válidos o no encontrados.');
+                    return;
+                }
+
+                // Procesar cada pista
+                uploadedMidiData.track.forEach((track, index) => {
+                    const newTrack = new MidiWriter.Track();
+
+                    // Configurar canal y eventos iniciales para la pista de batería
+                    if (index === drumTrackIndex) {
+                        console.log('Procesando pista de batería...');
+                        newTrack.setChannel(10); // Canal 10 para batería
+                        newTrack.addEvent(new MidiWriter.ControlChangeEvent({ number: 7, value: 120 })); // Volumen 120
+
+                        // Copiar eventos del intro si existe
+                        if (introMidi) {
+                            introMidi.track[0].event.forEach(event => {
+                                const deltaTime = event.deltaTime || 0;
+                                if (event.type === 9) { // Nota encendida
+                                    newTrack.addEvent(new MidiWriter.NoteEvent({
+                                        pitch: event.data[0],
+                                        velocity: event.data[1],
+                                        duration: 'T' + deltaTime,
+                                        channel: 10
+                                    }));
+                                }
+                            });
+                        }
+
+                        // Desplazar los eventos originales de batería por la duración del intro
+                        let currentTick = introDuration;
+                        track.event.forEach(event => {
+                            const deltaTime = event.deltaTime || 0;
+                            if (event.type === 9) { // Nota encendida
+                                newTrack.addEvent(new MidiWriter.NoteEvent({
+                                    pitch: event.data[0],
+                                    velocity: event.data[1],
+                                    duration: 'T' + deltaTime,
+                                    channel: 10,
+                                    startTick: currentTick
+                                }));
+                            }
+                            currentTick += deltaTime;
+                        });
+                    }
+                    // Configurar canal y eventos iniciales para la pista de bajo
+                    else if (index === bassTrackIndex) {
+                        console.log('Procesando pista de bajo...');
+                        newTrack.setChannel(2); // Canal 2 para bajo
+                        newTrack.addEvent(new MidiWriter.ControlChangeEvent({ number: 7, value: 100 })); // Volumen 100
+                        const selectedBassInstrument = parseInt(bassInstrumentSelect.value);
+                        newTrack.addEvent(new MidiWriter.ProgramChangeEvent({ instrument: selectedBassInstrument }));
+                        console.log('Instrumento de bajo seleccionado:', selectedBassInstrument);
+
+                        // Desplazar los eventos de bajo por la duración del intro
+                        let currentTick = introDuration;
+                        track.event.forEach(event => {
+                            const deltaTime = event.deltaTime || 0;
+                            if (event.type === 9) { // Nota encendida
+                                newTrack.addEvent(new MidiWriter.NoteEvent({
+                                    pitch: event.data[0],
+                                    velocity: event.data[1],
+                                    duration: 'T' + deltaTime,
+                                    channel: 2,
+                                    startTick: currentTick
+                                }));
+                            }
+                            currentTick += deltaTime;
+                        });
+                    }
+                    // Copiar otras pistas sin cambios
+                    else {
+                        console.log('Copiando pista sin cambios:', index);
+                        let currentTick = 0;
+                        track.event.forEach(event => {
+                            const deltaTime = event.deltaTime || 0;
+                            if (event.type === 9) { // Nota encendida
+                                newTrack.addEvent(new MidiWriter.NoteEvent({
+                                    pitch: event.data[0],
+                                    velocity: event.data[1],
+                                    duration: 'T' + deltaTime,
+                                    startTick: currentTick
+                                }));
+                            }
+                            currentTick += deltaTime;
+                        });
+                    }
+
+                    midiWriter.addTrack(newTrack);
+                });
+
+                // Generar y descargar el archivo MIDI modificado
+                try {
+                    console.log('Generando archivo MIDI modificado...');
+                    const midiData = midiWriter.buildFile();
+                    const blob = new Blob([midiData], { type: 'audio/midi' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'midi_modificado.mid';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    statusDiv.textContent = 'Archivo MIDI procesado y descargado.';
+                    console.log('Archivo MIDI descargado exitosamente.');
+                } catch (error) {
+                    console.error('Error al generar o descargar el archivo MIDI:', error);
+                    statusDiv.textContent = 'Error al generar el archivo MIDI.';
+                }
+            });
+        }
+
+        // Esperar a que ambas bibliotecas se carguen antes de inicializar la aplicación
+        Promise.all([
+            new Promise(resolve => {
+                const script1 = document.querySelector('script[src*="midi-parser"]');
+                script1.onload = () => {
+                    console.log('Biblioteca midi-parser-js cargada.');
+                    resolve();
+                };
+                script1.onerror = () => {
+                    document.getElementById('status').textContent = 'Error: No se pudo cargar la biblioteca MidiParser.';
+                    console.error('Fallo al cargar midi-parser-js.');
+                    throw new Error('Fallo al cargar la biblioteca MidiParser');
+                };
+            }),
+            new Promise(resolve => {
+                const script2 = document.querySelector('script[src*="midi-writer"]');
+                script2.onload = () => {
+                    console.log('Biblioteca midi-writer-js cargada.');
+                    resolve();
+                };
+                script2.onerror = () => {
+                    document.getElementById('status').textContent = 'Error: No se pudo cargar la biblioteca MidiWriter.';
+                    console.error('Fallo al cargar midi-writer-js.');
+                    throw new Error('Fallo al cargar la biblioteca MidiWriter');
+                };
+            })
+        ]).then(() => {
+            console.log('Todas las bibliotecas están cargadas. Inicializando la aplicación...');
+            initApp();
+        }).catch(error => {
+            console.error('Error al cargar las bibliotecas:', error);
+        });
+    </script>
+</body>
+</html>
