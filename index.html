@@ -62,9 +62,39 @@
         <div id="status"></div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/midi-parser-js@4.0.4/dist/midi-parser.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/midi-writer-js@2.0.0/dist/index.js" defer></script>
     <script>
+        // Función para cargar un script dinámicamente
+        function loadScript(url, fallbackUrl, callback, errorCallback) {
+            const script = document.createElement('script');
+            script.src = url;
+            script.async = true;
+            script.onload = () => {
+                console.log(`Script cargado exitosamente: ${url}`);
+                callback();
+            };
+            script.onerror = () => {
+                console.warn(`Fallo al cargar el script: ${url}`);
+                if (fallbackUrl) {
+                    console.log(`Intentando cargar desde URL alternativa: ${fallbackUrl}`);
+                    const fallbackScript = document.createElement('script');
+                    fallbackScript.src = fallbackUrl;
+                    fallbackScript.async = true;
+                    fallbackScript.onload = () => {
+                        console.log(`Script cargado exitosamente desde URL alternativa: ${fallbackUrl}`);
+                        callback();
+                    };
+                    fallbackScript.onerror = () => {
+                        console.error(`Fallo al cargar el script desde URL alternativa: ${fallbackUrl}`);
+                        errorCallback(new Error(`No se pudo cargar el script desde ${url} ni desde ${fallbackUrl}`));
+                    };
+                    document.head.appendChild(fallbackScript);
+                } else {
+                    errorCallback(new Error(`No se pudo cargar el script desde ${url}`));
+                }
+            };
+            document.head.appendChild(script);
+        }
+
         // Función para inicializar la aplicación
         function initApp() {
             if (!window.MidiParser) {
@@ -301,37 +331,30 @@
             });
         }
 
-        // Esperar a que ambas bibliotecas se carguen antes de inicializar la aplicación
+        // Cargar las bibliotecas dinámicamente con respaldo
         Promise.all([
-            new Promise(resolve => {
-                const script1 = document.querySelector('script[src*="midi-parser"]');
-                script1.onload = () => {
-                    console.log('Biblioteca midi-parser-js cargada.');
-                    resolve();
-                };
-                script1.onerror = () => {
-                    document.getElementById('status').textContent = 'Error: No se pudo cargar la biblioteca MidiParser.';
-                    console.error('Fallo al cargar midi-parser-js.');
-                    throw new Error('Fallo al cargar la biblioteca MidiParser');
-                };
+            new Promise((resolve, reject) => {
+                loadScript(
+                    'https://cdn.jsdelivr.net/npm/midi-parser-js@4.0.4/dist/midi-parser.min.js',
+                    'https://unpkg.com/midi-parser-js@4.0.4/dist/midi-parser.min.js',
+                    resolve,
+                    reject
+                );
             }),
-            new Promise(resolve => {
-                const script2 = document.querySelector('script[src*="midi-writer"]');
-                script2.onload = () => {
-                    console.log('Biblioteca midi-writer-js cargada.');
-                    resolve();
-                };
-                script2.onerror = () => {
-                    document.getElementById('status').textContent = 'Error: No se pudo cargar la biblioteca MidiWriter.';
-                    console.error('Fallo al cargar midi-writer-js.');
-                    throw new Error('Fallo al cargar la biblioteca MidiWriter');
-                };
+            new Promise((resolve, reject) => {
+                loadScript(
+                    'https://cdn.jsdelivr.net/npm/midi-writer-js@2.0.0/dist/index.js',
+                    'https://unpkg.com/midi-writer-js@2.0.0/dist/index.js',
+                    resolve,
+                    reject
+                );
             })
         ]).then(() => {
             console.log('Todas las bibliotecas están cargadas. Inicializando la aplicación...');
             initApp();
         }).catch(error => {
             console.error('Error al cargar las bibliotecas:', error);
+            document.getElementById('status').textContent = 'Error: No se pudieron cargar las bibliotecas necesarias.';
         });
     </script>
 </body>
